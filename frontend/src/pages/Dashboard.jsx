@@ -1,8 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Download, RefreshCw, Copy, CheckCheck, FlaskConical, Plus, Minus, WifiOff, Wallet, ChevronDown } from 'lucide-react';
-import { Send, Download, RefreshCw, Copy, CheckCheck, FlaskConical, Plus, Minus, PiggyBank } from 'lucide-react';
-import { Send, Download, RefreshCw, Copy, CheckCheck, FlaskConical, Plus, Minus, WifiOff } from 'lucide-react';
+import { Send, Download, RefreshCw, Copy, CheckCheck, FlaskConical, Plus, Minus, WifiOff, Wallet, ChevronDown, PiggyBank } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BalanceCardSkeleton, TransactionRowSkeleton } from '../components/Skeleton';
 import api from '../utils/api';
@@ -13,6 +11,7 @@ import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { setCacheEntry, getCacheEntry } from '../utils/offlineDB';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
 
 const IS_TESTNET = process.env.REACT_APP_STELLAR_NETWORK !== 'mainnet';
 const MAX_WALLETS = 5;
@@ -206,6 +205,8 @@ export default function Dashboard() {
   const displayBalance =
     selectedCurrency === 'XLM' ? xlmBalance : convertFromXLM(xlmBalance, selectedCurrency);
 
+  const { pullDistance, refreshing, onTouchStart, onTouchMove, onTouchEnd } = usePullToRefresh(loadDashboard);
+
   if (loading)
     return (
       <div className="px-4 py-6 max-w-lg mx-auto space-y-6" aria-busy="true" aria-label="Loading dashboard">
@@ -229,7 +230,25 @@ export default function Dashboard() {
     );
 
   return (
-    <div className="px-4 py-6 max-w-lg mx-auto space-y-6">
+    <div
+      className="px-4 py-6 max-w-lg mx-auto space-y-6"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      {/* Pull-to-refresh indicator */}
+      {(pullDistance > 0 || refreshing) && (
+        <div
+          className="flex justify-center items-center transition-all duration-150"
+          style={{ height: refreshing ? 40 : pullDistance, overflow: 'hidden' }}
+        >
+          <RefreshCw
+            size={20}
+            className={`text-primary-400 transition-transform ${refreshing ? 'animate-spin' : ''}`}
+            style={{ transform: refreshing ? undefined : `rotate(${(pullDistance / 80) * 360}deg)` }}
+          />
+        </div>
+      )}
       {/* Testnet banner */}
       {IS_TESTNET && (
         <div className="flex items-center justify-between bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-3">
