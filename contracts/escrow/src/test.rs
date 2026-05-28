@@ -207,6 +207,106 @@ fn test_cancel_escrow() {
 }
 
 #[test]
+fn test_confirm_delivery_prevents_cancel() {
+    let (env, client, admin, usdc_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let amount = 1_000_0000000i128;
+
+    mint_usdc(&env, &usdc_id, &admin, &sender, amount);
+    let escrow_id = client.create_escrow(&sender, &recipient, &agent, &amount, &250);
+    client.confirm_delivery(&agent, &escrow_id);
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert!(escrow.payout_confirmed);
+
+    let result = std::panic::catch_unwind(|| {
+        client.cancel_escrow(&sender, &escrow_id);
+    });
+    assert!(result.is_err());
+    let error_message = format!("{:?}", result.err().unwrap());
+    assert!(error_message.contains("Cannot cancel: agent has confirmed delivery"));
+}
+
+#[test]
+fn test_partial_release_keeps_pending_until_fully_released() {
+    let (env, client, admin, usdc_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let amount = 1_000_0000000i128;
+
+    mint_usdc(&env, &usdc_id, &admin, &sender, amount);
+    let escrow_id = client.create_escrow(&sender, &recipient, &agent, &amount, &250);
+
+    client.partial_release(&agent, &escrow_id, &500_000000i128);
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.status, EscrowStatus::Pending);
+    assert_eq!(escrow.amount, 500_000000i128);
+    assert_eq!(TokenClient::new(&env, &usdc_id).balance(&agent), 500_000000i128 - 12_500000i128);
+}
+
+#[test]
+fn test_multiple_partial_releases_release_remaining_amount() {
+    let (env, client, admin, usdc_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let amount = 1_000_0000000i128;
+
+    mint_usdc(&env, &usdc_id, &admin, &sender, amount);
+    let escrow_id = client.create_escrow(&sender, &recipient, &agent, &amount, &250);
+
+    client.partial_release(&agent, &escrow_id, &300_000000i128);
+    client.partial_release(&agent, &escrow_id, &200_000000i128);
+    client.partial_release(&agent, &escrow_id, &500_000000i128);
+
+    let escrow = client.get_escrow(&escrow_id);
+    assert_eq!(escrow.status, EscrowStatus::Released);
+    assert_eq!(escrow.amount, 0);
+}
+
+#[test]
+#[should_panic(expected = "Release amount exceeds escrow balance")]
+fn test_partial_release_over_release_panics() {
+    let (env, client, admin, usdc_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    mint_usdc(&env, &usdc_id, &admin, &sender, 1_000_0000000);
+    let escrow_id = client.create_escrow(&sender, &recipient, &agent, &1_000_0000000, &250);
+    client.partial_release(&agent, &escrow_id, &1_000_000001i128);
+}
+
+#[test]
+fn test_cleanup_escrow_after_retention() {
+    let (env, client, admin, usdc_id) = setup();
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let amount = 1_000_0000000i128;
+
+    mint_usdc(&env, &usdc_id, &admin, &sender, amount);
+    let escrow_id = client.create_escrow(&sender, &recipient, &agent, &amount, &250);
+    client.cancel_escrow(&sender, &escrow_id);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp += 90 * 24 * 60 * 60 + 1;
+    });
+
+    client.cleanup_escrow(&admin, &escrow_id);
+
+    let result = std::panic::catch_unwind(|| {
+        client.get_escrow(&escrow_id);
+    });
+    assert!(result.is_err());
+    let err_str = format!("{:?}", result.err().unwrap());
+    assert!(err_str.contains("Escrow 1 not found"));
+}
+
+#[test]
 #[should_panic(expected = "Only the agent can release escrow")]
 fn test_release_wrong_caller() {
     let (env, client, admin, usdc_id) = setup();
