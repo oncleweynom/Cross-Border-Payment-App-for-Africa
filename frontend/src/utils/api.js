@@ -15,6 +15,13 @@ const refreshClient = axios.create({
   withCredentials: true,
 });
 
+// refreshClient also needs the CSRF header for /auth/refresh
+refreshClient.interceptors.request.use((config) => {
+  const csrfMatch = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  if (csrfMatch) config.headers['X-CSRF-Token'] = decodeURIComponent(csrfMatch[1]);
+  return config;
+});
+
 let isRefreshing = false;
 let failedQueue = [];
 
@@ -53,6 +60,12 @@ function shouldAttemptRefresh(err, config) {
 api.interceptors.request.use((config) => {
   const token = tokenStore.get();
   if (token) config.headers.Authorization = `Bearer ${token}`;
+
+  // Double-submit CSRF cookie: read the non-httpOnly csrf_token cookie and
+  // echo it as a header so the backend can verify it wasn't forged cross-origin.
+  const csrfMatch = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  if (csrfMatch) config.headers['X-CSRF-Token'] = decodeURIComponent(csrfMatch[1]);
+
   return config;
 });
 

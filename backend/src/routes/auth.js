@@ -25,6 +25,7 @@ const {
 } = require('../controllers/authController');
 const authMiddleware = require('../middleware/auth');
 const geoRestriction = require('../middleware/geoRestriction');
+const { verifyCsrf } = require('../middleware/csrf');
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -101,8 +102,8 @@ router.post(
   resetPassword
 );
 
-router.post('/refresh', refresh);
-router.post('/logout', logout);
+router.post('/refresh', verifyCsrf, refresh);
+router.post('/logout', verifyCsrf, logout);
 
 router.get('/verify-email', verifyEmail);
 router.post(
@@ -126,8 +127,8 @@ router.post(
 );
 router.get('/verify-email-change', verifyEmailChange);
 router.get('/activity', authMiddleware, getActivity);
-router.post('/refresh', refresh);
-router.post('/logout', logout);
+router.post('/refresh', verifyCsrf, refresh);
+router.post('/logout', verifyCsrf, logout);
 
 router.post(
   '/set-pin',

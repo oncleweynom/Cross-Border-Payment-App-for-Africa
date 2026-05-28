@@ -17,6 +17,7 @@ const {
   generateRefreshToken,
   refreshTokenExpiresAt,
 } = require('../utils/tokens');
+const { setCsrfCookie } = require('../middleware/csrf');
 
 const TOKEN_TTL_MS = 96 * 60 * 60 * 1000; // 96 hours
 const { sendOTP } = require('../services/sms');
@@ -306,6 +307,7 @@ async function login(req, res, next) {
     await recordSession(user.id, token, req).catch(() => {});
 
     res.cookie(COOKIE_NAME, raw, COOKIE_OPTIONS);
+    setCsrfCookie(res);
     audit.log(user.id, 'login_success', req.ip, req.headers['user-agent']);
     res.json({
       token,
@@ -379,6 +381,7 @@ async function refresh(req, res, next) {
     const token = signAccessToken({ userId: record.user_id, email: record.email, role: record.role });
 
     res.cookie(COOKIE_NAME, newRaw, COOKIE_OPTIONS);
+    setCsrfCookie(res);
     res.json({ token });
   } catch (err) {
     next(err);
@@ -713,6 +716,7 @@ async function refresh(req, res, next) {
     });
 
     res.cookie(COOKIE_NAME, newRaw, COOKIE_OPTIONS);
+    setCsrfCookie(res);
     res.json({ token });
   } catch (err) {
     next(err);
