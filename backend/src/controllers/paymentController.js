@@ -16,6 +16,7 @@ const {
 } = require("../services/stellar");
 const webhook = require("../services/webhook");
 const cache = require("../utils/cache");
+const { sendTransactionEmail } = require("../services/email");
 const { checkVelocity, checkDailyLimit } = require("../services/fraudDetection");
 const { checkFraud, logFraudBlock } = require("../services/fraudDetection");
 const { parseHistoryFrom, parseHistoryTo, normalizeAsset, validateDateRange } = require("../utils/historyQuery");
@@ -346,6 +347,18 @@ async function send(req, res, next) {
     if (type !== "claimable_balance") {
       webhook.deliver("payment.received", txData).catch(() => {});
     }
+
+    // Fire-and-forget email notifications
+    const emailTxData = { amount, asset, senderAddress: public_key, recipientAddress: recipient_address, memo: memo || null, txHash: transactionHash };
+    db.query("SELECT email FROM users WHERE id = $1", [req.user.userId])
+      .then(({ rows }) => rows[0] && sendTransactionEmail(rows[0].email, "sent", emailTxData))
+      .catch(() => {});
+    db.query(
+      "SELECT u.email FROM users u JOIN wallets w ON w.user_id = u.id WHERE w.public_key = $1 LIMIT 1",
+      [recipient_address],
+    )
+      .then(({ rows }) => rows[0] && sendTransactionEmail(rows[0].email, "received", emailTxData))
+      .catch(() => {});
 
     res.json({
       message: type === "claimable_balance" ? "Claimable balance created" : "Payment sent successfully",
