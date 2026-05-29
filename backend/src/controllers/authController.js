@@ -476,7 +476,7 @@ async function verifyPhone(req, res, next) {
 async function getMe(req, res, next) {
   try {
     const result = await db.query(
-      `SELECT u.id, u.full_name, u.email, u.phone, u.phone_verified, u.pin_setup_completed, u.totp_enabled, u.account_type, w.public_key
+      `SELECT u.id, u.full_name, u.email, u.email_verified, u.phone, u.phone_verified, u.pin_setup_completed, u.totp_enabled, u.account_type, w.public_key
        FROM users u LEFT JOIN wallets w ON w.user_id = u.id
        WHERE u.id = $1`,
       [req.user.userId]
@@ -487,6 +487,7 @@ async function getMe(req, res, next) {
       id: u.id,
       full_name: u.full_name,
       email: u.email,
+      email_verified: u.email_verified,
       phone: u.phone,
       phone_verified: u.phone_verified,
       wallet_address: u.public_key,
