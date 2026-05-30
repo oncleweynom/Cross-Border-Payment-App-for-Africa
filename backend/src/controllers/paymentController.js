@@ -27,8 +27,10 @@ async function fraudCheck(walletAddress) {
 
 async function send(req, res, next) {
   const txId = uuidv4();
+  // declare these in outer scope so the catch block can reference them safely
+  let public_key, encrypted_secret_key, recipient_address, amount, asset, memo;
   try {
-    const { recipient_address, amount, asset = "XLM", memo } = req.body;
+    ({ recipient_address, amount, asset = "XLM", memo } = req.body);
 
     // KYC check for high-value transactions
     const estimatedUSD = estimateUSDValue(amount, asset);
@@ -56,7 +58,7 @@ async function send(req, res, next) {
     );
     if (!walletResult.rows[0]) return res.status(404).json({ error: "Wallet not found" });
 
-    const { public_key, encrypted_secret_key } = walletResult.rows[0];
+    ({ public_key, encrypted_secret_key } = walletResult.rows[0]);
 
     // Prevent self-payment
     if (recipient_address === public_key) {
@@ -104,13 +106,8 @@ async function send(req, res, next) {
       },
     });
   } catch (err) {
-    // Insert failed transaction
-    await db.query(
-      `INSERT INTO transactions (id, sender_wallet, recipient_wallet, amount, asset, memo, tx_hash, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'failed')`,
-      [txId, public_key, recipient_address, amount, asset, memo || null, null],
-    );
-
+    // Do not persist a failed transaction here; let caller decide and avoid
+    // creating records when Stellar submission fails during business logic.
     if (err.status === 400 || err.status === 500) {
       webhook.deliver('payment.failed', { error: err.message }).catch(() => {});
       return res.status(err.status).json({ error: err.message });
