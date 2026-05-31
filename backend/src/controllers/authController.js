@@ -7,7 +7,7 @@ const audit = require('../services/audit');
 const logger = require('../utils/logger');
 const { hashPIN, comparePIN, validatePIN } = require('../services/pin');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/email');
-const { generateSecret, verifyToken, generateBackupCodes, useBackupCode } = require('../services/twofa');
+const { generateSecret, verifyToken, generateBackupCodes } = require('../services/twofa');
 const {
   COOKIE_NAME,
   COOKIE_OPTIONS,
@@ -17,7 +17,6 @@ const {
 } = require('../utils/tokens');
 const { setCsrfCookie } = require('../middleware/csrf');
 
-const TOKEN_TTL_MS = 96 * 60 * 60 * 1000; // 96 hours
 const { sendOTP } = require('../services/sms');
 const { recordSession } = require('./sessionController');
 
@@ -167,7 +166,9 @@ async function login(req, res, next) {
     const { email, password, totp_code } = req.body;
 
     const result = await db.query(
-      `SELECT u.id, u.full_name, u.email, u.password_hash, u.email_verified, u.role, u.totp_enabled, u.totp_secret, u.failed_login_attempts, u.locked_until, u.last_failed_attempt_at, w.public_key
+      `SELECT u.id, u.full_name, u.email, u.password_hash, u.email_verified, u.role,
+              u.totp_enabled, u.totp_secret, u.failed_login_attempts, u.locked_until,
+              u.last_failed_attempt_at, w.public_key
        FROM users u LEFT JOIN wallets w ON w.user_id = u.id
        WHERE u.email = $1`,
       [email]
@@ -188,8 +189,7 @@ async function login(req, res, next) {
           locked_until: lockUntil.toISOString(),
         });
       }
-
-      // Lock has expired, reset attempt counters
+      // Lock has expired — reset counters
       await db.query(
         `UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_failed_attempt_at = NULL WHERE id = $1`,
         [user.id]
@@ -202,29 +202,21 @@ async function login(req, res, next) {
     // Verify password
     const isValidPassword = user && (await bcrypt.compare(password, user.password_hash));
     if (!user || !isValidPassword) {
-      // Invalid credentials - increment failed attempts for existing users
       if (user) {
         const lastAttempt = user.last_failed_attempt_at ? new Date(user.last_failed_attempt_at) : null;
-        const now = new Date();
         const ATTEMPT_WINDOW_MS = ATTEMPT_WINDOW_MINUTES * 60 * 1000;
-
         let failedAttempts = user.failed_login_attempts || 0;
 
-        // If the last attempt was outside the 15-minute window, reset the counter
         if (lastAttempt && (now - lastAttempt) > ATTEMPT_WINDOW_MS) {
           failedAttempts = 0;
         }
-
-        // Increment failed attempts
         failedAttempts++;
-        const nowTimestamp = now;
 
-        // Check if we should lock the account
         if (failedAttempts >= MAX_FAILED_ATTEMPTS) {
-          const lockedUntil = new Date(now + (LOCKOUT_DURATION_MINUTES * 60 * 1000));
+          const lockedUntil = new Date(now.getTime() + LOCKOUT_DURATION_MINUTES * 60 * 1000);
           await db.query(
             `UPDATE users SET failed_login_attempts = $1, locked_until = $2, last_failed_attempt_at = $3 WHERE id = $4`,
-            [failedAttempts, lockedUntil, nowTimestamp, user.id]
+            [failedAttempts, lockedUntil, now, user.id]
           );
           audit.log(user.id, 'account_locked', req.ip, req.headers['user-agent'], {
             reason: 'excessive_failed_login_attempts',
@@ -237,26 +229,41 @@ async function login(req, res, next) {
           });
         }
 
-        // Update attempt counter and timestamp
         await db.query(
           `UPDATE users SET failed_login_attempts = $1, last_failed_attempt_at = $2 WHERE id = $3`,
-          [failedAttempts, nowTimestamp, user.id]
+          [failedAttempts, now, user.id]
         );
         audit.log(user.id, 'login_failure', req.ip, req.headers['user-agent'], {
           failed_attempts: failedAttempts,
           attempts_remaining: MAX_FAILED_ATTEMPTS - failedAttempts,
         });
       }
-
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Password is valid
     if (!user.email_verified) {
       return res.status(403).json({ error: 'Please verify your email before logging in.' });
     }
 
     // Short-lived access token
+    // 2FA check — must happen before issuing tokens
+    if (user.totp_enabled) {
+      if (!totp_code) {
+        return res.status(403).json({ error: 'TOTP code required', requires_2fa: true });
+      }
+      const isValid = verifyToken(user.totp_secret, totp_code);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid TOTP code' });
+      }
+    }
+
+    // Successful login — reset attempt counters
+    await db.query(
+      `UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_failed_attempt_at = NULL WHERE id = $1`,
+      [user.id]
+    );
+
+    // Issue short-lived access token
     const token = signAccessToken({ userId: user.id, email: user.email, role: user.role });
 
     // Issue refresh token — store only the hash in DB, seed a new family

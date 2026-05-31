@@ -1313,6 +1313,30 @@ async function refundTestnetWallets(publicKeys) {
   }));
 }
 
+// Fetch Stellar asset info (supply, home domain, num_accounts) for any code+issuer
+async function getAssetMetadataByCodeAndIssuer(code, issuer) {
+  const [assetResponse, issuerAccount] = await Promise.all([
+    server.assets().forCode(code).forIssuer(issuer).call(),
+    server.loadAccount(issuer).catch(() => null),
+  ]);
+
+  const asset = assetResponse.records[0];
+  if (!asset) {
+    const err = new Error(`Asset ${code}:${issuer} not found on Stellar`);
+    err.status = 404;
+    throw err;
+  }
+
+  return {
+    code: asset.asset_code,
+    issuer: asset.asset_issuer,
+    supply: asset.amount,
+    num_accounts: asset.num_accounts,
+    home_domain: issuerAccount?.home_domain || null,
+    flags: asset.flags,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
@@ -1356,4 +1380,5 @@ module.exports = {
   recoverSequence,
   withSequenceRecovery,
   validateNetworkPassphrase,
+  getAssetMetadataByCodeAndIssuer,
 };

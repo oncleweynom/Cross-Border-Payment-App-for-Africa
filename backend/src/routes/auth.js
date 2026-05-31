@@ -6,9 +6,6 @@ const {
   refresh,
   logout,
   verifyEmail,
-  getMe,
-  setPIN,
-  verifyPIN,
   verifyPhone,
   updateProfile,
   changeEmail,
@@ -23,6 +20,7 @@ const {
 const authMiddleware = require('../middleware/auth');
 const geoRestriction = require('../middleware/geoRestriction');
 const { verifyCsrf } = require('../middleware/csrf');
+const { listSessions, revokeSession, revokeAllSessions } = require('../controllers/sessionController');
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -32,22 +30,14 @@ const validate = (req, res, next) => {
 
 const PASSWORD_MIN_LENGTH = parseInt(process.env.PASSWORD_MIN_LENGTH, 10) || 8;
 
-/**
- * Validates password strength and returns a list of unmet requirements.
- * Rules: min length, uppercase, lowercase, digit, special character.
- */
 function checkPasswordStrength(password) {
   const unmet = [];
   if (password.length < PASSWORD_MIN_LENGTH)
     unmet.push(`at least ${PASSWORD_MIN_LENGTH} characters`);
-  if (!/[A-Z]/.test(password))
-    unmet.push('at least one uppercase letter');
-  if (!/[a-z]/.test(password))
-    unmet.push('at least one lowercase letter');
-  if (!/\d/.test(password))
-    unmet.push('at least one digit');
-  if (!/[^A-Za-z0-9]/.test(password))
-    unmet.push('at least one special character');
+  if (!/[A-Z]/.test(password)) unmet.push('at least one uppercase letter');
+  if (!/[a-z]/.test(password)) unmet.push('at least one lowercase letter');
+  if (!/\d/.test(password)) unmet.push('at least one digit');
+  if (!/[^A-Za-z0-9]/.test(password)) unmet.push('at least one special character');
   return unmet;
 }
 
@@ -57,7 +47,6 @@ router.post(
   [
     body('full_name').trim().notEmpty().withMessage('Full name is required'),
     body('email').isEmail().normalizeEmail(),
-    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
     body('password')
       .notEmpty().withMessage('Password is required')
       .custom((value) => {
@@ -90,10 +79,10 @@ router.post(
 router.post(
   '/reset-password',
   [
-    body('email').isEmail().normalizeEmail(),
-    body('password').notEmpty(),
     body('token').trim().notEmpty().withMessage('Reset token is required'),
-    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
+    body('password')
+      .notEmpty().withMessage('Password is required')
+      .isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   ],
   validate,
   resetPassword
@@ -124,8 +113,6 @@ router.post(
 );
 router.get('/verify-email-change', verifyEmailChange);
 router.get('/activity', authMiddleware, getActivity);
-router.post('/refresh', verifyCsrf, refresh);
-router.post('/logout', verifyCsrf, logout);
 
 router.post(
   '/set-pin',
@@ -145,31 +132,25 @@ router.post(
 
 router.post('/2fa/setup', authMiddleware, setup2FA);
 
-router.post('/2fa/verify',
+router.post(
+  '/2fa/verify',
   authMiddleware,
-  [body('pin').matches(/^\d{4,6}$/).withMessage('PIN must be 4-6 digits')],
-  [
-    body('totp_code').matches(/^\d{6}$/).withMessage('TOTP code must be 6 digits')
-  ],
+  [body('totp_code').matches(/^\d{6}$/).withMessage('TOTP code must be 6 digits')],
   validate,
   verify2FA
 );
 
-router.post('/2fa/disable',
+router.post(
+  '/2fa/disable',
   authMiddleware,
-  [body('pin').matches(/^\d{4,6}$/).withMessage('PIN must be 4-6 digits')],
-  [
-    body('password').notEmpty().withMessage('Password is required')
-  ],
+  [body('password').notEmpty().withMessage('Password is required')],
   validate,
   disable2FA
 );
 
-const { listSessions, revokeSession, revokeAllSessions } = require('../controllers/sessionController');
-
-module.exports = router;
-
-// Session management routes (all require auth)
+// Session management
 router.get('/sessions', authMiddleware, listSessions);
 router.delete('/sessions', authMiddleware, revokeAllSessions);
 router.delete('/sessions/:id', authMiddleware, revokeSession);
+
+module.exports = router;
