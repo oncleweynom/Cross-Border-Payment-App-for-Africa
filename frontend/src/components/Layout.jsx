@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Send, Download, Clock, Upload, User, LogOut, Sun, Moon, Bell, BellOff, AlertTriangle, ArrowUpDown } from 'lucide-react';
+import { LayoutDashboard, Send, Download, Clock, Upload, User, LogOut, Sun, Moon, Bell, BellOff, AlertTriangle, ArrowUpDown, PiggyBank } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { usePushNotifications } from '../hooks/usePushNotifications';
@@ -10,8 +10,8 @@ import OfflineBanner from './OfflineBanner';
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/send', icon: Send, label: 'Send' },
-  { to: '/batch-payments', icon: Upload, label: 'Batch' },
   { to: '/swap', icon: ArrowUpDown, label: 'Swap' },
+  { to: '/save', icon: PiggyBank, label: 'Save' },
   { to: '/receive', icon: Download, label: 'Receive' },
   { to: '/history', icon: Clock, label: 'History' },
   { to: '/profile', icon: User, label: 'Profile' },

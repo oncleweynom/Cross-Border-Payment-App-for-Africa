@@ -93,12 +93,16 @@ export default function SendMoney() {
   // Trustline check state
   const [trustlineWarning, setTrustlineWarning] = useState(null); // null | string (asset code)
 
+  // Path payment toggle — when enabled the user can pick a destination asset and
+  // the payment is routed via Stellar DEX path payment instead of a direct transfer.
+  const [usePathPayment, setUsePathPayment] = useState(false);
+
   // Ledger hardware wallet state
   const [showLedgerModal, setShowLedgerModal] = useState(false);
   const [unsignedXDR, setUnsignedXDR] = useState(null);
   const [ledgerNetworkPassphrase, setLedgerNetworkPassphrase] = useState(null);
 
-  const isCrossAsset = form.destination_asset && form.destination_asset !== form.asset;
+  const isCrossAsset = usePathPayment && form.destination_asset && form.destination_asset !== form.asset;
 
   /** Returns true for a valid Ed25519 public key or a federation address */
   const isValidStellarAddress = (addr) =>
@@ -127,6 +131,8 @@ export default function SendMoney() {
     setMemoError(false);
     setAddressError(false);
     setContractSimData(null);
+    setUsePathPayment(false);
+    setSendMode('send');
   };
 
   /** True when the user has entered data beyond the URL-seeded defaults. */
@@ -928,193 +934,214 @@ export default function SendMoney() {
           )}
         </div>
 
-        {/* Destination Asset (cross-asset toggle) */}
+        {/* Path payment toggle (issue #458) */}
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-sm text-gray-400 flex items-center gap-1">
-              <ArrowRightLeft size={13} /> Recipient receives (optional)
+          <div className="flex items-center justify-between">
+            <label className="text-sm text-gray-400 flex items-center gap-1.5">
+              <ArrowRightLeft size={13} />
+              Path payment{' '}
+              <span className="text-gray-600 text-xs">(swap via Stellar DEX)</span>
             </label>
-            <div className="flex items-center gap-2">
-              {form.destination_asset && (
-                <div className="flex items-center gap-1 bg-gray-800 rounded-lg p-0.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSendMode('send');
-                      setPathResult(null);
-                    }}
-                    className={`text-xs px-2 py-1 rounded-md transition-colors ${sendMode === 'send' ? 'bg-primary-500 text-white' : 'text-gray-400 hover:text-white'}`}
-                  >
-                    I send exact
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSendMode('receive');
-                      setPathResult(null);
-                    }}
-                    className={`text-xs px-2 py-1 rounded-md transition-colors ${sendMode === 'receive' ? 'bg-primary-500 text-white' : 'text-gray-400 hover:text-white'}`}
-                  >
-                    They receive exact
-                  </button>
-                </div>
-              )}
-              {form.destination_asset && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={usePathPayment}
+              onClick={() => {
+                const next = !usePathPayment;
+                setUsePathPayment(next);
+                if (!next) {
+                  setForm((f) => ({ ...f, destination_asset: '' }));
+                  setPathResult(null);
+                  setSendMode('send');
+                }
+              }}
+              className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
+                usePathPayment ? 'bg-primary-500' : 'bg-gray-700'
+              }`}
+              aria-label="Enable path payment"
+            >
+              <span
+                className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                  usePathPayment ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
+          <p className="text-xs text-gray-600 mt-0.5">
+            Route through the Stellar DEX when a direct payment path is unavailable.
+          </p>
+
+          {usePathPayment && (
+            <div className="mt-3 space-y-3">
+              {/* Send-mode toggle: strict-send vs strict-receive */}
+              <div className="flex items-center gap-1 bg-gray-800 rounded-lg p-0.5 w-fit">
                 <button
                   type="button"
-                  onClick={() => {
-                    setForm({ ...form, destination_asset: '' });
-                    setPathResult(null);
-                    setSendMode('send');
-                  }}
-                  className="text-xs text-gray-500 hover:text-white transition-colors"
+                  onClick={() => { setSendMode('send'); setPathResult(null); }}
+                  className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
+                    sendMode === 'send' ? 'bg-primary-500 text-white' : 'text-gray-400 hover:text-white'
+                  }`}
                 >
-                  Clear
+                  I send exact
                 </button>
-              )}
-            </div>
-          </div>
-          <div className="relative">
-            <select
-              value={form.destination_asset}
-              onChange={(e) => setForm({ ...form, destination_asset: e.target.value })}
-              className="appearance-none w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary-500 pr-8 transition-colors"
-            >
-              <option value="">Same as sent ({form.asset})</option>
-              {currencies
-                .filter((c) => c.code !== form.asset)
-                .map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.flag} {c.code}
-                  </option>
-                ))}
-            </select>
-            <ChevronDown
-              size={14}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-            />
-          </div>
+                <button
+                  type="button"
+                  onClick={() => { setSendMode('receive'); setPathResult(null); }}
+                  className={`text-xs px-3 py-1.5 rounded-md transition-colors ${
+                    sendMode === 'receive' ? 'bg-primary-500 text-white' : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  They receive exact
+                </button>
+              </div>
 
-          {/* Path result / loading */}
-          {isCrossAsset && (
-            <div className="mt-2 px-3 py-2 bg-gray-800 border border-gray-700 rounded-xl text-sm">
-              {pathLoading && <p className="text-gray-400 animate-pulse">Finding best rate...</p>}
-              {!pathLoading && pathResult && sendMode === 'send' && (
-                <div className="space-y-1">
-                  <p className="text-green-400">
-                    Recipient receives ≈{' '}
-                    <span className="font-semibold">
-                      {pathResult.destinationAmount} {form.destination_asset}
-                    </span>
-                  </p>
-                  {(() => {
-                    const srcAmt = parseFloat(form.amount);
-                    const dstAmt = parseFloat(pathResult.destinationAmount);
-                    if (!srcAmt || !dstAmt) return null;
-                    const rate = (dstAmt / srcAmt).toPrecision(6);
-                    const impact = form.slippage;
-                    return (
-                      <>
-                        <p className="text-xs text-gray-400">
-                          Rate: 1 {form.asset} ≈ {rate} {form.destination_asset}
-                        </p>
-                        {impact > 1 && (
-                          <p className="text-xs text-yellow-400">
-                            ⚠️ High price impact ({impact}%). Consider splitting into smaller
-                            transactions.
-                          </p>
-                        )}
-                      </>
-                    );
-                  })()}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-gray-500">Slippage tolerance:</span>
-                    {SLIPPAGE_OPTIONS.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => {
-                          localStorage.setItem('afripay_slippage', s);
-                          setForm({ ...form, slippage: s });
-                        }}
-                        className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                          form.slippage === s
-                            ? 'border-primary-500 text-primary-400'
-                            : 'border-gray-600 text-gray-400 hover:border-gray-400'
-                        }`}
-                      >
-                        {s}%
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    Min received: {destMin} {form.destination_asset}
-                  </p>
+              {/* Destination asset selector */}
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Recipient receives</label>
+                <div className="relative">
+                  <select
+                    value={form.destination_asset}
+                    onChange={(e) => setForm({ ...form, destination_asset: e.target.value })}
+                    className="appearance-none w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary-500 pr-8 transition-colors"
+                  >
+                    <option value="">Same as sent ({form.asset})</option>
+                    {currencies
+                      .filter((c) => c.code !== form.asset)
+                      .map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.flag} {c.code}
+                        </option>
+                      ))}
+                  </select>
+                  <ChevronDown
+                    size={14}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
                 </div>
-              )}
-              {!pathLoading && pathResult && sendMode === 'receive' && (
-                <div className="space-y-1">
-                  <p className="text-green-400">
-                    Recipient receives exactly{' '}
-                    <span className="font-semibold">
-                      {form.amount} {form.destination_asset}
-                    </span>
-                  </p>
-                  <p className="text-yellow-300 text-xs">
-                    You pay approximately{' '}
-                    <span className="font-semibold">
-                      {pathResult.sourceAmount} {form.asset}
-                    </span>
-                  </p>
-                  {(() => {
-                    const srcAmt = parseFloat(pathResult.sourceAmount);
-                    const dstAmt = parseFloat(form.amount);
-                    if (!srcAmt || !dstAmt) return null;
-                    const rate = (dstAmt / srcAmt).toPrecision(6);
-                    const impact = form.slippage;
-                    return (
-                      <>
-                        <p className="text-xs text-gray-400">
-                          Rate: 1 {form.asset} ≈ {rate} {form.destination_asset}
-                        </p>
-                        {impact > 1 && (
-                          <p className="text-xs text-yellow-400">
-                            ⚠️ High price impact ({impact}%). Consider splitting into smaller
-                            transactions.
-                          </p>
-                        )}
-                      </>
-                    );
-                  })()}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-gray-500">Max slippage:</span>
-                    {SLIPPAGE_OPTIONS.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => {
-                          localStorage.setItem('afripay_slippage', s);
-                          setForm({ ...form, slippage: s });
-                        }}
-                        className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                          form.slippage === s
-                            ? 'border-primary-500 text-primary-400'
-                            : 'border-gray-600 text-gray-400 hover:border-gray-400'
-                        }`}
-                      >
-                        {s}%
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    Max you pay:{' '}
-                    {(parseFloat(pathResult.sourceAmount) * (1 + form.slippage / 100)).toFixed(7)}{' '}
-                    {form.asset}
-                  </p>
+              </div>
+
+              {/* Path result / loading */}
+              {isCrossAsset && (
+                <div className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-xl text-sm">
+                  {pathLoading && <p className="text-gray-400 animate-pulse">Finding best rate...</p>}
+                  {!pathLoading && pathResult && sendMode === 'send' && (
+                    <div className="space-y-1">
+                      <p className="text-green-400">
+                        Recipient receives ≈{' '}
+                        <span className="font-semibold">
+                          {pathResult.destinationAmount} {form.destination_asset}
+                        </span>
+                      </p>
+                      {(() => {
+                        const srcAmt = parseFloat(form.amount);
+                        const dstAmt = parseFloat(pathResult.destinationAmount);
+                        if (!srcAmt || !dstAmt) return null;
+                        const rate = (dstAmt / srcAmt).toPrecision(6);
+                        return (
+                          <>
+                            <p className="text-xs text-gray-400">
+                              Rate: 1 {form.asset} ≈ {rate} {form.destination_asset}
+                            </p>
+                            {form.slippage > 1 && (
+                              <p className="text-xs text-yellow-400">
+                                ⚠️ High price impact ({form.slippage}%). Consider splitting into
+                                smaller transactions.
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-gray-500">Slippage tolerance:</span>
+                        {SLIPPAGE_OPTIONS.map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => {
+                              localStorage.setItem('afripay_slippage', s);
+                              setForm({ ...form, slippage: s });
+                            }}
+                            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                              form.slippage === s
+                                ? 'border-primary-500 text-primary-400'
+                                : 'border-gray-600 text-gray-400 hover:border-gray-400'
+                            }`}
+                          >
+                            {s}%
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Min received: {destMin} {form.destination_asset}
+                      </p>
+                    </div>
+                  )}
+                  {!pathLoading && pathResult && sendMode === 'receive' && (
+                    <div className="space-y-1">
+                      <p className="text-green-400">
+                        Recipient receives exactly{' '}
+                        <span className="font-semibold">
+                          {form.amount} {form.destination_asset}
+                        </span>
+                      </p>
+                      <p className="text-yellow-300 text-xs">
+                        You pay approximately{' '}
+                        <span className="font-semibold">
+                          {pathResult.sourceAmount} {form.asset}
+                        </span>
+                      </p>
+                      {(() => {
+                        const srcAmt = parseFloat(pathResult.sourceAmount);
+                        const dstAmt = parseFloat(form.amount);
+                        if (!srcAmt || !dstAmt) return null;
+                        const rate = (dstAmt / srcAmt).toPrecision(6);
+                        return (
+                          <>
+                            <p className="text-xs text-gray-400">
+                              Rate: 1 {form.asset} ≈ {rate} {form.destination_asset}
+                            </p>
+                            {form.slippage > 1 && (
+                              <p className="text-xs text-yellow-400">
+                                ⚠️ High price impact ({form.slippage}%). Consider splitting into
+                                smaller transactions.
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-gray-500">Max slippage:</span>
+                        {SLIPPAGE_OPTIONS.map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => {
+                              localStorage.setItem('afripay_slippage', s);
+                              setForm({ ...form, slippage: s });
+                            }}
+                            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                              form.slippage === s
+                                ? 'border-primary-500 text-primary-400'
+                                : 'border-gray-600 text-gray-400 hover:border-gray-400'
+                            }`}
+                          >
+                            {s}%
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Max you pay:{' '}
+                        {(parseFloat(pathResult.sourceAmount) * (1 + form.slippage / 100)).toFixed(7)}{' '}
+                        {form.asset}
+                      </p>
+                    </div>
+                  )}
+                  {!pathLoading && !pathResult && form.amount && form.recipient_address && (
+                    <p className="text-yellow-500 text-xs">
+                      No conversion path found for these assets
+                    </p>
+                  )}
                 </div>
-              )}
-              {!pathLoading && !pathResult && form.amount && form.recipient_address && (
-                <p className="text-yellow-500 text-xs">No conversion path found for these assets</p>
               )}
             </div>
           )}
@@ -1280,34 +1307,23 @@ export default function SendMoney() {
                   )}
                 </>
               )}
-              {isCrossAsset && pathResult && sendMode === 'send' && (
-                <p>
-                  Recipient receives ≈{' '}
-                  <span className="text-white font-semibold">
-                    {pathResult.destinationAmount} {form.destination_asset}
-                  </span>{' '}
-                  (min {destMin})
-                </p>
-              )}
+              {/* Net amount recipient receives (issue #457) */}
+              <p>
+                Recipient receives:{' '}
+                <span className="text-green-400 font-semibold">
+                  {isCrossAsset && pathResult && sendMode === 'send'
+                    ? `≈ ${pathResult.destinationAmount} ${form.destination_asset} (min ${destMin})`
+                    : isCrossAsset && pathResult && sendMode === 'receive'
+                    ? `${form.amount} ${form.destination_asset} (exact)`
+                    : `${form.amount} ${form.asset}`}
+                </span>
+              </p>
               {isCrossAsset && pathResult && sendMode === 'receive' && (
-                <>
-                  <p>
-                    Recipient receives exactly{' '}
-                    <span className="text-white font-semibold">
-                      {form.amount} {form.destination_asset}
-                    </span>
-                  </p>
-                  <p>
-                    You pay approximately{' '}
-                    <span className="text-white font-semibold">
-                      {pathResult.sourceAmount} {form.asset}
-                    </span>
-                  </p>
-                </>
-              )}
-              {form.memo && (
                 <p>
-                  {t('send.confirm_memo')} {form.memo}
+                  You pay approximately{' '}
+                  <span className="text-white font-semibold">
+                    {pathResult.sourceAmount} {form.asset}
+                  </span>
                 </p>
               )}
               {form.memo.trim() ? (

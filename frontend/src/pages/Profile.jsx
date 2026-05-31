@@ -83,6 +83,18 @@ export default function Profile() {
   const [changeEmailForm, setChangeEmailForm] = useState({ new_email: '', password: '' });
   const [changeEmailLoading, setChangeEmailLoading] = useState(false);
 
+  // Support tickets state (issue #481)
+  const [showSupportForm, setShowSupportForm] = useState(false);
+  const [supportForm, setSupportForm] = useState({ type: '', description: '', transaction_id: '' });
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [tickets, setTickets] = useState([]);
+  const [ticketsLoading, setTicketsLoading] = useState(true);
+
+  // Loyalty points state (issue #480)
+  const [loyaltyBalance, setLoyaltyBalance] = useState(null);
+  const [loyaltyLoading, setLoyaltyLoading] = useState(true);
+  const [redeemLoading, setRedeemLoading] = useState(false);
+
   const handleChangeEmail = async (e) => {
     e.preventDefault();
     setChangeEmailLoading(true);
@@ -95,6 +107,39 @@ export default function Profile() {
       toast.error(err.response?.data?.error || 'Failed to request email change');
     } finally {
       setChangeEmailLoading(false);
+    }
+  };
+
+  const handleSubmitSupport = async (e) => {
+    e.preventDefault();
+    setSupportLoading(true);
+    try {
+      await api.post('/support/tickets', supportForm);
+      toast.success('Support ticket created successfully');
+      setShowSupportForm(false);
+      setSupportForm({ type: '', description: '', transaction_id: '' });
+      // Refresh tickets list
+      const res = await api.get('/support/tickets');
+      setTickets(res.data.tickets || []);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to create support ticket');
+    } finally {
+      setSupportLoading(false);
+    }
+  };
+
+  const handleRedeemLoyalty = async () => {
+    setRedeemLoading(true);
+    try {
+      await api.post('/loyalty/redeem');
+      toast.success('100 loyalty points redeemed for 50% fee discount');
+      // Refresh balance
+      const res = await api.get('/loyalty/balance');
+      setLoyaltyBalance(res.data.points || 0);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to redeem points');
+    } finally {
+      setRedeemLoading(false);
     }
   };
 
@@ -264,8 +309,30 @@ export default function Profile() {
         setActivityLoading(false);
       }
     };
+    const fetchTickets = async () => {
+      try {
+        const res = await api.get('/support/tickets');
+        setTickets(res.data.tickets || []);
+      } catch {
+        // non-critical, silently ignore
+      } finally {
+        setTicketsLoading(false);
+      }
+    };
+    const fetchLoyaltyBalance = async () => {
+      try {
+        const res = await api.get('/loyalty/balance');
+        setLoyaltyBalance(res.data.points || 0);
+      } catch {
+        // non-critical, silently ignore
+      } finally {
+        setLoyaltyLoading(false);
+      }
+    };
     fetchContacts();
     fetchActivity();
+    fetchTickets();
+    fetchLoyaltyBalance();
   }, []);
 
   const handleAddTrustline = async (e) => {
@@ -500,6 +567,129 @@ export default function Profile() {
               </div>
             )}
           </>
+        )}
+      </div>
+
+      {/* Loyalty Points (issue #480) */}
+      <div className="bg-gray-900 rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <Gift size={16} className="text-primary-400" />
+            <h3 className="font-semibold text-white">Loyalty Points</h3>
+          </div>
+        </div>
+
+        {loyaltyLoading ? (
+          <p className="text-gray-500 text-sm mt-2">Loading…</p>
+        ) : (
+          <div className="mt-3 bg-gray-800 border border-gray-700 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-300 font-semibold text-2xl">{loyaltyBalance || 0}</p>
+                <p className="text-gray-500 text-xs mt-1">Points available</p>
+              </div>
+              <button
+                onClick={handleRedeemLoyalty}
+                disabled={redeemLoading || (loyaltyBalance || 0) < 100}
+                className="bg-primary-500 hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+              >
+                {redeemLoading ? 'Redeeming…' : 'Redeem 100'}
+              </button>
+            </div>
+            <p className="text-gray-500 text-xs mt-2">
+              Redeem 100 points for a 50% fee discount on your next transaction.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Support Tickets (issue #481) */}
+      <div className="bg-gray-900 rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="text-primary-400" />
+            <h3 className="font-semibold text-white">Support Tickets</h3>
+          </div>
+          <button
+            onClick={() => setShowSupportForm(!showSupportForm)}
+            className="text-primary-500 hover:text-primary-400 flex items-center gap-1 text-sm"
+          >
+            <Plus size={16} /> New Ticket
+          </button>
+        </div>
+
+        {showSupportForm && (
+          <form
+            onSubmit={handleSubmitSupport}
+            className="mb-4 space-y-3 bg-gray-800 rounded-xl p-4"
+          >
+            <select
+              required
+              value={supportForm.type}
+              onChange={(e) => setSupportForm({ ...supportForm, type: e.target.value })}
+              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
+            >
+              <option value="">Select issue type</option>
+              <option value="wrong_address">Wrong address</option>
+              <option value="wrong_amount">Wrong amount</option>
+              <option value="failed_deducted">Failed but deducted</option>
+              <option value="other">Other</option>
+            </select>
+            <input
+              type="text"
+              placeholder="Transaction ID (optional)"
+              value={supportForm.transaction_id}
+              onChange={(e) => setSupportForm({ ...supportForm, transaction_id: e.target.value })}
+              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            />
+            <textarea
+              required
+              placeholder="Describe your issue..."
+              value={supportForm.description}
+              onChange={(e) => setSupportForm({ ...supportForm, description: e.target.value })}
+              rows={3}
+              maxLength={2000}
+              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary-500 resize-none"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSupportForm(false)}
+                className="flex-1 bg-gray-600 hover:bg-gray-500 text-white text-sm py-2 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={supportLoading}
+                className="flex-1 bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white text-sm py-2 rounded-lg transition-colors"
+              >
+                {supportLoading ? 'Submitting…' : 'Submit'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {ticketsLoading ? (
+          <p className="text-gray-500 text-sm text-center py-4">Loading…</p>
+        ) : tickets.length === 0 ? (
+          <p className="text-gray-500 text-sm text-center py-4">No support tickets yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {tickets.map((ticket) => (
+              <div key={ticket.id} className="bg-gray-800 rounded-xl px-3 py-2.5">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-white capitalize">
+                    {ticket.type.replace(/_/g, ' ')}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {new Date(ticket.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 line-clamp-2">{ticket.description}</p>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
